@@ -1,0 +1,41 @@
+- name: RHEL9 CIS hardening (via the RHEL9-CIS role)
+  hosts: all
+  become: yes
+
+  vars:
+    # ./RHEL9-CIS is a local copy of the upstream ansible-lockdown-style
+    # role - its own site.yml uses the "{{ playbook_dir }}" self-role
+    # trick, so it's referenced here as a plain filesystem-path role.
+
+    # rhel9cis_rule_1_4_1: false disables the GRUB bootloader-password
+    # control. The role ships with rhel9cis_bootloader_password_hash
+    # defaulted to a realistic-looking PBKDF2 hash that is nonetheless a
+    # PUBLIC, KNOWN value committed in the open-source repo - its own
+    # assert only checks the string *looks* like a real hash, not that
+    # it's actually been changed. Leaving this enabled would apply that
+    # same publicly-known bootloader password to every host this runs
+    # against. If you want this control, generate your own hash
+    # (grub2-setpassword / grub2-mkpasswd-pbkdf2) and pass the real value
+    # as rhel9cis_bootloader_password_hash explicitly (ideally from a
+    # secrets manager, not committed here).
+    rhel9cis_rule_1_4_1: false
+
+    # Placeholder banner - replace with your own organization's notice
+    # before real use.
+    ssh_banner_text: |
+      ------------------------------------------------------------------------
+       AUTHORISED ACCESS ONLY
+       This system is the property of <ORGANIZATION NAME>. All connections,
+       commands and file transfers may be logged and monitored. Unauthorised
+       access or use is prohibited. Disconnect now if you are not an
+       authorised user.
+      ------------------------------------------------------------------------
+
+  roles:
+    - role: ./RHEL9-CIS
+
+  tasks:
+    - name: Set SSH banner
+      ansible.builtin.copy:
+        dest: /etc/issue.net
+        content: "{{ ssh_banner_text }}"

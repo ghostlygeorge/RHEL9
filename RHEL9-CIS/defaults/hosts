@@ -1,0 +1,2 @@
+[all]
+34.253.232.145 ansible_ssh_user=ec2-user
