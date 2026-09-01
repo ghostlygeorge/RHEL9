@@ -26,139 +26,142 @@
   roles:
     # ignore_errors here applies to every task in the role, so a single
     # failed remediation doesn't halt the rest of the CIS hardening run.
+    # (The role's own tasks/main.yml also wraps itself in ignore_errors,
+    # so this holds even if the role is ever called without it.)
     - role: ./RHEL9-CIS
       ignore_errors: true
 
   tasks:
-    ####################################################################
-    # CrowdStrike Falcon - installed and left dormant; activation
-    # (registering with the Falcon CID) happens post-launch.
-    ####################################################################
-
-    - name: Copy Falcon agent to the remote host
-      ansible.builtin.copy:
-        src: "{{ falcon_sensor_local_path }}"
-        dest: "/tmp/{{ falcon_sensor_local_path | basename }}"
-        mode: '0644'
-
-    - name: Install Falcon agent
-      ansible.builtin.yum:
-        name: "/tmp/{{ falcon_sensor_local_path | basename }}"
-        state: present
-        disable_gpg_check: yes
-
-    - name: Stop Falcon service if running
-      ansible.builtin.systemd:
-        name: falcon-sensor
-        state: stopped
+    # Everything below is wrapped in one block so a failure anywhere in
+    # this playbook's own tasks - not just the role - never halts the run.
+    - name: Playbook tasks (errors ignored)
       ignore_errors: true
+      block:
+        ####################################################################
+        # CrowdStrike Falcon - installed and left dormant; activation
+        # (registering with the Falcon CID) happens post-launch.
+        ####################################################################
 
-    - name: Clear Falcon local state
-      ansible.builtin.file:
-        path: /opt/CrowdStrike/var/
-        state: absent
+        - name: Copy Falcon agent to the remote host
+          ansible.builtin.copy:
+            src: "{{ falcon_sensor_local_path }}"
+            dest: "/tmp/{{ falcon_sensor_local_path | basename }}"
+            mode: '0644'
 
-    - name: Recreate Falcon var directory
-      ansible.builtin.file:
-        path: /opt/CrowdStrike/var/
-        state: directory
-        owner: root
-        group: root
-        mode: '0700'
+        - name: Install Falcon agent
+          ansible.builtin.yum:
+            name: "/tmp/{{ falcon_sensor_local_path | basename }}"
+            state: present
+            disable_gpg_check: yes
 
-    - name: Ensure Falcon service is disabled
-      ansible.builtin.systemd:
-        name: falcon-sensor
-        enabled: false
+        - name: Stop Falcon service if running
+          ansible.builtin.systemd:
+            name: falcon-sensor
+            state: stopped
 
-    - name: Delete Falcon agent installer
-      ansible.builtin.file:
-        path: "/tmp/{{ falcon_sensor_local_path | basename }}"
-        state: absent
+        - name: Clear Falcon local state
+          ansible.builtin.file:
+            path: /opt/CrowdStrike/var/
+            state: absent
 
-    ####################################################################
-    # CimTrak FIM - same copy -> install -> dormant pattern as Falcon.
-    # Activation (pointing it at the CimTrak master server) happens
-    # post-launch.
-    ####################################################################
+        - name: Recreate Falcon var directory
+          ansible.builtin.file:
+            path: /opt/CrowdStrike/var/
+            state: directory
+            owner: root
+            group: root
+            mode: '0700'
 
-    - name: Copy CimTrak installer to the remote host
-      ansible.builtin.copy:
-        src: "{{ cimtrak_installer_local_path }}"
-        dest: "/tmp/{{ cimtrak_installer_local_path | basename }}"
-        mode: '0755'
+        - name: Ensure Falcon service is disabled
+          ansible.builtin.systemd:
+            name: falcon-sensor
+            enabled: false
 
-    - name: Run CimTrak installer
-      # Fill in the real silent-install flags for your installer build
-      # (master server host/port, install dir) before using this.
-      ansible.builtin.command: "/tmp/{{ cimtrak_installer_local_path | basename }} --silent"
-      args:
-        creates: /opt/cimtrak  # adjust to CimTrak's real install path
+        - name: Delete Falcon agent installer
+          ansible.builtin.file:
+            path: "/tmp/{{ falcon_sensor_local_path | basename }}"
+            state: absent
 
-    - name: Stop CimTrak service if running
-      ansible.builtin.systemd:
-        name: cimtrakagent
-        state: stopped
-      ignore_errors: true
+        ####################################################################
+        # CimTrak FIM - same copy -> install -> dormant pattern as Falcon.
+        # Activation (pointing it at the CimTrak master server) happens
+        # post-launch.
+        ####################################################################
 
-    - name: Ensure CimTrak service is disabled
-      ansible.builtin.systemd:
-        name: cimtrakagent
-        enabled: false
+        - name: Copy CimTrak installer to the remote host
+          ansible.builtin.copy:
+            src: "{{ cimtrak_installer_local_path }}"
+            dest: "/tmp/{{ cimtrak_installer_local_path | basename }}"
+            mode: '0755'
 
-    - name: Delete CimTrak installer
-      ansible.builtin.file:
-        path: "/tmp/{{ cimtrak_installer_local_path | basename }}"
-        state: absent
+        - name: Run CimTrak installer
+          # Fill in the real silent-install flags for your installer build
+          # (master server host/port, install dir) before using this.
+          ansible.builtin.command: "/tmp/{{ cimtrak_installer_local_path | basename }} --silent"
+          args:
+            creates: /opt/cimtrak  # adjust to CimTrak's real install path
 
-    - name: Set SSH banner
-      ansible.builtin.copy:
-        dest: /etc/issue.net
-        content: "{{ ssh_banner_text }}"
+        - name: Stop CimTrak service if running
+          ansible.builtin.systemd:
+            name: cimtrakagent
+            state: stopped
 
-    ####################################################################
-    # Agent removal - opt-in only, does not run on a normal playbook
-    # run. Invoke explicitly with:
-    #   ansible-playbook playbook.yml --tags remove_agents
-    ####################################################################
+        - name: Ensure CimTrak service is disabled
+          ansible.builtin.systemd:
+            name: cimtrakagent
+            enabled: false
 
-    - name: Stop Falcon service before removal
-      ansible.builtin.systemd:
-        name: falcon-sensor
-        state: stopped
-      ignore_errors: true
-      tags: [never, remove_agents]
+        - name: Delete CimTrak installer
+          ansible.builtin.file:
+            path: "/tmp/{{ cimtrak_installer_local_path | basename }}"
+            state: absent
 
-    - name: Uninstall Falcon agent
-      ansible.builtin.yum:
-        name: falcon-sensor
-        state: absent
-      tags: [never, remove_agents]
+        - name: Set SSH banner
+          ansible.builtin.copy:
+            dest: /etc/issue.net
+            content: "{{ ssh_banner_text }}"
 
-    - name: Remove leftover Falcon directory
-      ansible.builtin.file:
-        path: /opt/CrowdStrike
-        state: absent
-      tags: [never, remove_agents]
+        ####################################################################
+        # Agent removal - opt-in only, does not run on a normal playbook
+        # run. Invoke explicitly with:
+        #   ansible-playbook playbook.yml --tags remove_agents
+        ####################################################################
 
-    - name: Stop CimTrak service before removal
-      ansible.builtin.systemd:
-        name: cimtrakagent
-        state: stopped
-      ignore_errors: true
-      tags: [never, remove_agents]
+        - name: Stop Falcon service before removal
+          ansible.builtin.systemd:
+            name: falcon-sensor
+            state: stopped
+          tags: [never, remove_agents]
 
-    - name: Uninstall CimTrak agent
-      # Fill in the real uninstall command for your installer build
-      # (e.g. a bundled /opt/cimtrak/uninstall.sh) - not something to
-      # guess at.
-      ansible.builtin.command: /opt/cimtrak/uninstall.sh --silent
-      args:
-        removes: /opt/cimtrak
-      tags: [never, remove_agents]
+        - name: Uninstall Falcon agent
+          ansible.builtin.yum:
+            name: falcon-sensor
+            state: absent
+          tags: [never, remove_agents]
 
-    - name: Remove leftover CimTrak directory
-      ansible.builtin.file:
-        path: /opt/cimtrak
-        state: absent
-      tags: [never, remove_agents]
+        - name: Remove leftover Falcon directory
+          ansible.builtin.file:
+            path: /opt/CrowdStrike
+            state: absent
+          tags: [never, remove_agents]
+
+        - name: Stop CimTrak service before removal
+          ansible.builtin.systemd:
+            name: cimtrakagent
+            state: stopped
+          tags: [never, remove_agents]
+
+        - name: Uninstall CimTrak agent
+          # Fill in the real uninstall command for your installer build
+          # (e.g. a bundled /opt/cimtrak/uninstall.sh) - not something to
+          # guess at.
+          ansible.builtin.command: /opt/cimtrak/uninstall.sh --silent
+          args:
+            removes: /opt/cimtrak
+          tags: [never, remove_agents]
+
+        - name: Remove leftover CimTrak directory
+          ansible.builtin.file:
+            path: /opt/cimtrak
+            state: absent
+          tags: [never, remove_agents]
