@@ -112,3 +112,50 @@
       ansible.builtin.copy:
         dest: /etc/issue.net
         content: "{{ ssh_banner_text }}"
+
+    ####################################################################
+    # Agent removal - opt-in only, does not run on a normal playbook
+    # run. Invoke explicitly with:
+    #   ansible-playbook playbook.yml --tags remove_agents
+    ####################################################################
+
+    - name: Stop Falcon service before removal
+      ansible.builtin.systemd:
+        name: falcon-sensor
+        state: stopped
+      ignore_errors: true
+      tags: [never, remove_agents]
+
+    - name: Uninstall Falcon agent
+      ansible.builtin.yum:
+        name: falcon-sensor
+        state: absent
+      tags: [never, remove_agents]
+
+    - name: Remove leftover Falcon directory
+      ansible.builtin.file:
+        path: /opt/CrowdStrike
+        state: absent
+      tags: [never, remove_agents]
+
+    - name: Stop CimTrak service before removal
+      ansible.builtin.systemd:
+        name: cimtrakagent
+        state: stopped
+      ignore_errors: true
+      tags: [never, remove_agents]
+
+    - name: Uninstall CimTrak agent
+      # Fill in the real uninstall command for your installer build
+      # (e.g. a bundled /opt/cimtrak/uninstall.sh) - not something to
+      # guess at.
+      ansible.builtin.command: /opt/cimtrak/uninstall.sh --silent
+      args:
+        removes: /opt/cimtrak
+      tags: [never, remove_agents]
+
+    - name: Remove leftover CimTrak directory
+      ansible.builtin.file:
+        path: /opt/cimtrak
+        state: absent
+      tags: [never, remove_agents]
