@@ -3,25 +3,11 @@
   become: yes
 
   vars:
-    # ./RHEL9-CIS is a local copy of the upstream ansible-lockdown-style
-    # role - its own site.yml uses the "{{ playbook_dir }}" self-role
-    # trick, so it's referenced here as a plain filesystem-path role.
-
-    # rhel9cis_rule_1_4_1: false disables the GRUB bootloader-password
-    # control. The role ships with rhel9cis_bootloader_password_hash
-    # defaulted to a realistic-looking PBKDF2 hash that is nonetheless a
-    # PUBLIC, KNOWN value committed in the open-source repo - its own
-    # assert only checks the string *looks* like a real hash, not that
-    # it's actually been changed. Leaving this enabled would apply that
-    # same publicly-known bootloader password to every host this runs
-    # against. If you want this control, generate your own hash
-    # (grub2-setpassword / grub2-mkpasswd-pbkdf2) and pass the real value
-    # as rhel9cis_bootloader_password_hash explicitly (ideally from a
-    # secrets manager, not committed here).
+    # Ships with a known-public GRUB password hash - leave false unless
+    # you supply your own via rhel9cis_bootloader_password_hash.
     rhel9cis_rule_1_4_1: false
 
-    # Placeholder banner - replace with your own organization's notice
-    # before real use.
+    # Placeholder banner - replace with your own organization's notice.
     ssh_banner_text: |
       ------------------------------------------------------------------------
        AUTHORISED ACCESS ONLY
@@ -31,10 +17,97 @@
        authorised user.
       ------------------------------------------------------------------------
 
+    # Place the matching installer alongside this playbook under these
+    # filenames (or override the vars) before running.
+    falcon_sensor_arch: "{{ falcon_sensor_arch | default('x86_64') }}"
+    falcon_sensor_local_path: "{{ playbook_dir }}/falcon-sensor-latest.rhel9.{{ falcon_sensor_arch | default('x86_64') }}.rpm"
+    cimtrak_installer_local_path: "{{ playbook_dir }}/cimtrak-agent-installer.run"
+
   roles:
     - role: ./RHEL9-CIS
 
   tasks:
+    ####################################################################
+    # CrowdStrike Falcon - installed and left dormant; activation
+    # (registering with the Falcon CID) happens post-launch.
+    ####################################################################
+
+    - name: Copy Falcon agent to the remote host
+      ansible.builtin.copy:
+        src: "{{ falcon_sensor_local_path }}"
+        dest: "/tmp/{{ falcon_sensor_local_path | basename }}"
+        mode: '0644'
+
+    - name: Install Falcon agent
+      ansible.builtin.yum:
+        name: "/tmp/{{ falcon_sensor_local_path | basename }}"
+        state: present
+        disable_gpg_check: yes
+
+    - name: Stop Falcon service if running
+      ansible.builtin.systemd:
+        name: falcon-sensor
+        state: stopped
+      ignore_errors: true
+
+    - name: Clear Falcon local state
+      ansible.builtin.file:
+        path: /opt/CrowdStrike/var/
+        state: absent
+
+    - name: Recreate Falcon var directory
+      ansible.builtin.file:
+        path: /opt/CrowdStrike/var/
+        state: directory
+        owner: root
+        group: root
+        mode: '0700'
+
+    - name: Ensure Falcon service is disabled
+      ansible.builtin.systemd:
+        name: falcon-sensor
+        enabled: false
+
+    - name: Delete Falcon agent installer
+      ansible.builtin.file:
+        path: "/tmp/{{ falcon_sensor_local_path | basename }}"
+        state: absent
+
+    ####################################################################
+    # CimTrak FIM - same copy -> install -> dormant pattern as Falcon.
+    # Activation (pointing it at the CimTrak master server) happens
+    # post-launch.
+    ####################################################################
+
+    - name: Copy CimTrak installer to the remote host
+      ansible.builtin.copy:
+        src: "{{ cimtrak_installer_local_path }}"
+        dest: "/tmp/{{ cimtrak_installer_local_path | basename }}"
+        mode: '0755'
+
+    - name: Run CimTrak installer
+      # Fill in the real silent-install flags for your installer build
+      # (master server host/port, install dir) before using this.
+      ansible.builtin.command: "/tmp/{{ cimtrak_installer_local_path | basename }} --silent"
+      args:
+        creates: /opt/cimtrak  # adjust to CimTrak's real install path
+
+    - name: Stop CimTrak service if running
+      ansible.builtin.systemd:
+        name: cimtrakagent
+        state: stopped
+      ignore_errors: true
+
+    - name: Ensure CimTrak service is disabled
+      ansible.builtin.systemd:
+        name: cimtrakagent
+        enabled: false
+
+    - name: Delete CimTrak installer
+      ansible.builtin.file:
+        path: "/tmp/{{ cimtrak_installer_local_path | basename }}"
+        state: absent
+
     - name: Set SSH banner
       ansible.builtin.copy:
         dest: /etc/issue.net
