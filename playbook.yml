@@ -24,7 +24,10 @@
     cimtrak_installer_local_path: "{{ playbook_dir }}/cimtrak-agent-installer.run"
 
   roles:
+    # ignore_errors here applies to every task in the role, so a single
+    # failed remediation doesn't halt the rest of the CIS hardening run.
     - role: ./RHEL9-CIS
+      ignore_errors: true
 
   tasks:
     ####################################################################
